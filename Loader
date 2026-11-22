@@ -1,0 +1,127 @@
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║  ZUNI HUB - LOADER v4.1                                            ║
+-- ║  Limpa, baixa a base, detecta o jogo e carrega o módulo            ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
+local BASE_URL = "https://raw.githubusercontent.com/SEU_USUARIO/ZuniExploits/main/Zuni_hub_base.lua"
+local ETW_URL  = "https://raw.githubusercontent.com/SEU_USUARIO/ZuniExploits/main/ETW.lua"
+local CB_URL  = "https://raw.githubusercontent.com/SEU_USUARIO/ZuniExploits/main/CB.lua"
+
+-- GameId -> módulo
+local Modules = {
+    [5677613211] = { name = "ETW", url = ETW_URL },
+    [189707]     = { name = "CB", url = CB_URL },
+}
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- LIMPEZA
+-- ═══════════════════════════════════════════════════════════════════════
+local function Cleanup()
+    if _G.ZuniHub then
+        pcall(function()
+            if _G.ZuniHub.Destroy then _G.ZuniHub.Destroy() else _G.ZuniHub.Alive = false end
+        end)
+        _G.ZuniHub = nil
+    end
+    if _G.N3onHub then
+        pcall(function() _G.N3onHub.Alive = false end)
+        _G.N3onHub = nil
+    end
+
+    local roots = {}
+    pcall(function() table.insert(roots, game.Players.LocalPlayer:WaitForChild("PlayerGui")) end)
+    pcall(function() table.insert(roots, game:GetService("CoreGui")) end)
+    pcall(function() if gethui then table.insert(roots, gethui()) end end)
+
+    for _, root in ipairs(roots) do
+        pcall(function()
+            for _, name in ipairs({ "ZuniHub", "ZuniNotify", "N3onHub", "FlyControls" }) do
+                local g = root:FindFirstChild(name)
+                if g then g:Destroy() end
+            end
+        end)
+    end
+end
+Cleanup()
+task.wait(0.2)
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- DOWNLOAD + EXECUÇÃO SEGUROS
+-- ═══════════════════════════════════════════════════════════════════════
+local function Fetch(url)
+    local full = url .. "?t=" .. os.time()
+    local ok, res = pcall(function() return game:HttpGet(full) end)
+    if ok and type(res) == "string" and #res > 10 then return res end
+
+    local req = (syn and syn.request) or http_request or request or (http and http.request)
+    if req then
+        local ok2, r = pcall(req, { Url = full, Method = "GET" })
+        if ok2 and r and (r.StatusCode == 200 or r.Success) and type(r.Body) == "string" and #r.Body > 10 then
+            return r.Body
+        end
+    end
+    return nil, tostring(res)
+end
+
+local function SafeLoad(url, label)
+    print("[Loader] Baixando: " .. label)
+    local src, lastErr
+    for attempt = 1, 3 do
+        src, lastErr = Fetch(url)
+        if src then break end
+        warn(("[Loader] Tentativa %d/3 falhou (%s): %s"):format(attempt, label, tostring(lastErr)))
+        task.wait(0.6)
+    end
+    if not src then return false, "download falhou" end
+
+    local fn, err = loadstring(src, "=Zuni_" .. label)
+    if not fn then
+        warn("[Loader] Erro de sintaxe em " .. label .. ": " .. tostring(err))
+        return false, tostring(err)
+    end
+    local ok, err2 = pcall(fn)
+    if not ok then
+        warn("[Loader] Erro ao executar " .. label .. ": " .. tostring(err2))
+        return false, tostring(err2)
+    end
+    return true
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- BASE
+-- ═══════════════════════════════════════════════════════════════════════
+print("⚡ ZUNI HUB LOADER v4.1")
+
+if not SafeLoad(BASE_URL, "Base") then
+    warn("[Loader] Abortando: não foi possível carregar a base.")
+    return
+end
+
+local waited = 0
+while not (_G.ZuniHub and _G.ZuniHub.Ready) and waited < 100 do
+    task.wait(0.1)
+    waited += 1
+end
+if not (_G.ZuniHub and _G.ZuniHub.Ready) then
+    warn("[Loader] A base não ficou pronta em 10s.")
+    return
+end
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- MÓDULO DO JOGO
+-- ═══════════════════════════════════════════════════════════════════════
+local Z = _G.ZuniHub
+local id = game.GameId
+print("[Loader] GameId:", id, "| PlaceId:", game.PlaceId)
+
+local mod = Modules[id]
+if mod then
+    local ok, err = SafeLoad(mod.url, mod.name)
+    if not ok then
+        Z.Notify("Erro no módulo " .. mod.name, tostring(err):sub(1, 90), Z.Colors.Danger, 6)
+    end
+else
+    Z.Notify("Jogo não suportado", "GameId " .. tostring(id) .. ". Apenas Home e Player disponíveis.", Z.Colors.Warning, 5)
+end
+
+print("[Loader] ✓ Concluído.")
