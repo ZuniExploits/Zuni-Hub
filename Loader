@@ -5,12 +5,12 @@
 
 local BASE_URL = "https://raw.githubusercontent.com/ZuniExploits/Zuni-Hub/refs/heads/main/Zuni_hub_base.lua"
 local ETW_URL  = "https://raw.githubusercontent.com/ZuniExploits/Zuni-Hub/refs/heads/main/ETW.lua"
-local PL = "https://raw.githubusercontent.com/ZuniExploits/Zuni-Hub/refs/heads/main/PL.lua"
+local PL_URL = "https://raw.githubusercontent.com/ZuniExploits/Zuni-Hub/refs/heads/main/PL.lua"
 
 -- GameId -> módulo
 local Modules = {
     [5677613211] = { name = "ETW", url = ETW_URL },
-    [155615604] = { name = "PL", url = ETW_URL },
+    [155615604] = { name = "PL", url = PL_URL },
 }
 
 -- ═══════════════════════════════════════════════════════════════════════
