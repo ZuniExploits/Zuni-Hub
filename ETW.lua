@@ -1,7 +1,8 @@
 -- ╔══════════════════════════════════════════════════════════════════════╗
--- ║  ZUNI HUB - ETW MODULE v13.9 - EDICÃO LEVE + SALVAMENTO            ║
+-- ║  ZUNI HUB - ETW MODULE v14.0                                       ║
 -- ║  Anti-Void • Auto Upgrade c/ saldo • Teleporte Timed 91min         ║
--- ║  Contagem persistente (salva ANTES de teleportar) • SEM rejoin     ║
+-- ║  Ícones nas abas (desenhados pela Base v7) • Skip por tempo/chunk  ║
+-- ║  Popups/notificações ficam na Base (Z.Notify / Z.Confirm)          ║
 -- ╚══════════════════════════════════════════════════════════════════════╝
 
 if not _G.ZuniHub or not _G.ZuniHub.Ready then
@@ -422,6 +423,7 @@ task.spawn(function()
         CreateAntiVoid()
     end
 end)
+Z.OnDestroy(function() DestroyAntiVoid() end)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- AUTO UPGRADES — helpers
@@ -463,15 +465,6 @@ local function GetUpgradePrice(name)
     local ok, price = pcall(function() return info.Upgrades[name].priceFunction(currentLevel + 1) end)
     if ok then return price end
     return nil
-end
-
-local function GetUpgradeDisplayName(name)
-    local info = GetItemInfo()
-    if info and info.Upgrades and info.Upgrades[name] then
-        return info.Upgrades[name].name or name
-    end
-    local pretty = name:gsub("(%l)(%u)", "%1 %2")
-    return pretty
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -519,7 +512,7 @@ local function SetFeature(key, v, quiet, isRestoring)
     if not ft then return end
     v = not not v
     if v == ft.running then return end
-    
+
     if not v then
         ft.gen += 1
         CleanupFeature(key)
@@ -528,24 +521,24 @@ local function SetFeature(key, v, quiet, isRestoring)
     else
         S.ActiveFeatures[key] = true
     end
-    
+
     if v and ft.exclusive then SetFeature(ft.exclusive, false, true, isRestoring) end
     ft.running = v
-    
+
     if v then
         if ft.onStart then pcall(ft.onStart) end
         RunLoop(ft)
     end
-    
+
     local ui = UI[key]
     if ui and ui.Frame.Parent and type(ui.Set) == "function" then
         ui.Set(v, true)
     end
-    
+
     if not quiet then
         Z.Notify(ft.label, v and "Ativado" or "Desativado", v and C.Success or C.TextDim, 1.5)
     end
-    
+
     if not isRestoring then
         SaveConfig()
     end
@@ -627,9 +620,6 @@ end
 --   4. Se chegou em 2, salva o reset pra 0 ANTES de voltar
 --   5. Teleporta de volta pro original
 --   6. Espera 10s
---
--- A contagem é salva ANTES do teleporte para sobreviver ao reload do mapa.
--- Se o player sair no meio, a contagem fica onde estava (persistida).
 
 local function GetCurrentMapType()
     return S.teleportMapType or "Normal"
@@ -671,7 +661,7 @@ local function RunTeleportCycleBlocking(reason)
         return true
     end
 
-    -- ✅ Passo 1: incrementa e SALVA ANTES de teleportar
+    -- Passo 1: incrementa e SALVA ANTES de teleportar
     local newCount = count + 1
     S.teleportCount = newCount
     SaveConfig()
@@ -679,7 +669,7 @@ local function RunTeleportCycleBlocking(reason)
         string.format("Contagem atualizada para %d/%d (salva).", newCount, TELEPORT_MAX),
         C.Success, 2)
 
-    -- ✅ Passo 2: só depois teleporta pro mapa oposto
+    -- Passo 2: só depois teleporta pro mapa oposto
     local current = GetCurrentMapType()
     local firstTarget = (current == "Mega") and "Normal" or "Mega"
     Z.Notify("Teleporte",
@@ -687,7 +677,6 @@ local function RunTeleportCycleBlocking(reason)
         C.Accent, 3)
 
     if not DoMapTeleport(firstTarget) then
-        -- ❌ Falhou: reverte a contagem
         S.teleportCount = count
         SaveConfig()
         Z.Notify("Teleporte", "Falha ao teleportar. Contagem revertida.", C.Danger, 3)
@@ -701,7 +690,7 @@ local function RunTeleportCycleBlocking(reason)
         string.format("Carregou. Contagem = %d/%d", S.teleportCount, TELEPORT_MAX),
         C.Success, 2)
 
-    -- ✅ Passo 3: se chegou em 2, salva o reset ANTES de voltar
+    -- Passo 3: se chegou em 2, salva o reset ANTES de voltar
     if S.teleportCount >= TELEPORT_MAX then
         local secondTarget = (firstTarget == "Mega") and "Normal" or "Mega"
         Z.Notify("Teleporte",
@@ -721,9 +710,7 @@ local function RunTeleportCycleBlocking(reason)
         task.wait(TELEPORT_WAIT)
         if not Z.Alive then return false end
 
-        Z.Notify("Teleporte",
-            "Ciclo completo. Contagem resetada para 0.",
-            C.Warning, 4)
+        Z.Notify("Teleporte", "Ciclo completo. Contagem resetada para 0.", C.Warning, 4)
     end
 
     return true
@@ -768,8 +755,9 @@ NewFeature("teleportTimed", "Teleporte Mega/Normal (Timed)", function()
     return 5
 end, {
     onStart = function()
+        S.teleportTimedEnabled = true
         InitTeleportTimer()
-        Z.Notify("Teleporte Timed", "Ativado. Intervalo: 91 min.", C.Success, 3)
+        Z.Notify("Teleporte Timed", "Ativado. Intervalo: " .. math.floor((tonumber(S.teleportTimedInterval) or TELEPORT_BASE_INTERVAL) / 60) .. " min.", C.Success, 3)
     end,
     onStop = function()
         Z.Notify("Teleporte Timed", "Desativado.", C.TextDim, 2)
@@ -934,6 +922,36 @@ NewFeature("grab", "Auto Grab", function()
 
     return 0.05
 end, { onStart = ResetGrab, onStop = ResetGrab })
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- SKIP POR TEMPO / SKIP SEM CHUNK
+-- (a Aba Map usava Features.skipTimer / skipStuck, que não existiam: erro ao abrir a aba)
+-- ═══════════════════════════════════════════════════════════════════════
+NewFeature("skipTimer", "Skip Map (Tempo)", function()
+    if not S.skipTimerEnabled then return 1 end
+    if tick() - lastSkip >= math.max(5, S.skipInterval) then
+        SkipMap(string.format("Mapa pulado (a cada %ds).", math.floor(S.skipInterval)))
+    end
+    return 1
+end, { onStart = function() lastSkip = tick() end })
+
+local noChunk = { since = nil }
+NewFeature("skipStuck", "Skip Map (Sem Chunk)", function()
+    if not S.skipStuckEnabled then noChunk.since = nil; return 1 end
+    if HasChunk() then noChunk.since = nil; return 1 end
+    -- só conta depois que o Auto Grab já tentou pegar
+    if not (Features.grab and Features.grab.running and (grabTried or grabCooldown.until_ > 0)) then
+        noChunk.since = nil
+        return 1
+    end
+    local now = tick()
+    if not noChunk.since then noChunk.since = now end
+    if now - noChunk.since >= S.skipStuckTime then
+        SkipMap(string.format("Mapa pulado (sem chunk há %ds).", math.floor(S.skipStuckTime)))
+        noChunk.since = nil
+    end
+    return 1
+end, { onStart = function() noChunk.since = nil end, onStop = function() noChunk.since = nil end })
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- SIZE STUCK
@@ -1160,9 +1178,7 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
     if price == nil or cubes == nil then
         if autoUpgState.lastCanBuy ~= false then
             autoUpgState.lastCanBuy = false
-            Z.Notify("Auto Upgrades",
-                "Não foi possível ler preço ou saldo. Compra pausada.",
-                C.Warning, 3)
+            Z.Notify("Auto Upgrades", "Não foi possível ler preço ou saldo. Compra pausada.", C.Warning, 3)
         end
         return 5
     end
@@ -1193,14 +1209,10 @@ NewFeature("autoUpgrades", "Auto Upgrades", function()
     if ok then
         Z.Notify("Auto Upgrades",
             string.format("Comprado: %q | Nível: %s | %s/%s",
-                selectedName,
-                tostring(upgradeValue.Value),
-                tostring(cubes), tostring(price)),
+                selectedName, tostring(upgradeValue.Value), tostring(cubes), tostring(price)),
             C.Success, 2)
         print(string.format("[ETW AutoUpgrades] FireServer(%q) | Nível: %s | Cubes: %s | Preço: %s",
-            selectedName,
-            tostring(upgradeValue.Value),
-            tostring(cubes), tostring(price)))
+            selectedName, tostring(upgradeValue.Value), tostring(cubes), tostring(price)))
     else
         Z.Notify("Auto Upgrades", "Erro: " .. tostring(err), C.Danger, 3)
         warn("[ETW AutoUpgrades] Erro ao disparar:", err)
@@ -1240,7 +1252,7 @@ local function NextRewardIn()
 end
 
 local function LoadMain()
-    Z.Sep("📊  STATUS")
+    Z.Sep("STATUS")
     local stSize   = Z.Stat("Tamanho", "—")
     local stChunk  = Z.Stat("Chunk", "—")
     local stBed    = Z.Stat("Bedrock", "—")
@@ -1303,34 +1315,34 @@ local function LoadMain()
         end)
     end)
 
-    Z.Sep("🎛️  CONTROLES RÁPIDOS")
-    Z.Button("▶  Ativar farm completo (Grab + Eat + Smart Sell + Rewards + Unstuck)", C.Success, function()
+    Z.Sep("CONTROLES RÁPIDOS")
+    Z.Button("Ativar farm completo (Grab + Eat + Smart Sell + Rewards + Unstuck)", C.Success, function()
         for _, k in ipairs({ "grab", "eat", "smartSell", "rewards", "sizeStuckSkip" }) do
             SetFeature(k, true, true)
         end
         Z.Notify("ETW", "Farm completo ativado.", C.Success, 2)
     end)
-    Z.Button("⏭  Pular mapa agora", C.Accent, function() SkipMap("Mapa pulado.") end)
-    Z.Button("🔁  Fazer ciclo Mega/Normal agora", C.Warning, function()
-        task.spawn(function()
-            RunTeleportCycleBlocking("Manual")
-        end)
+    Z.Button("Pular mapa agora", C.Accent, function() SkipMap("Mapa pulado.") end)
+    Z.Button("Fazer ciclo Mega/Normal agora", C.Warning, function()
+        task.spawn(function() RunTeleportCycleBlocking("Manual") end)
     end)
-    Z.Button("🔄  Resetar contagem de teleporte", C.Purple, function()
+    Z.Button("Resetar contagem de teleporte", C.Purple, function()
         S.teleportCount = 0
         SaveConfig()
         Z.Notify("Teleporte", "Contagem resetada para 0.", C.Success, 2)
     end)
-    Z.Button("⏹  Desligar tudo", C.Danger, function()
-        for key in pairs(Features) do SetFeature(key, false, true) end
-        ResetAutoOff(); ResetSizeStuck()
-        Z.Notify("ETW", "Todas as funções desligadas.", C.TextDim, 2)
+    Z.Button("Desligar tudo", C.Danger, function()
+        Z.Confirm("Desligar tudo?", "Todas as funções do ETW serão desligadas.", function()
+            for key in pairs(Features) do SetFeature(key, false, true) end
+            ResetAutoOff(); ResetSizeStuck()
+            Z.Notify("ETW", "Todas as funções desligadas.", C.TextDim, 2)
+        end, "Desligar", "Cancelar")
     end)
-    Z.Button("🧹  Limpar Memória (Garbage Collector)", C.Purple, function()
+    Z.Button("Limpar memória (Garbage Collector)", C.Purple, function()
         collectgarbage("collect")
         Z.Notify("Sistema", "Memória limpa (Garbage Collector executado).", C.Success, 2)
     end)
-    Z.Button("💾  Salvar Configurações", C.Success, function()
+    Z.Button("Salvar configurações", C.Success, function()
         SaveConfig()
         Z.Notify("Sistema", "Configurações salvas manualmente.", C.Success, 2)
     end)
@@ -1340,7 +1352,7 @@ end
 -- ABA: GRAB
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadGrab()
-    Z.Sep("🌾  AUTO GRAB")
+    Z.Sep("AUTO GRAB")
     FeatureToggle("grab", "Auto Grab", "Tenta pegar chunk UMA vez. Só tenta de novo depois que perder o chunk atual.")
     Z.Info("O Grab só dispara se você NÃO tiver chunk, e apenas UMA vez até conseguir ou falhar.")
 
@@ -1354,7 +1366,7 @@ end
 -- ABA: EAT / SELL / THROW
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadEatSell()
-    Z.Sep("🍽️  AUTO EAT")
+    Z.Sep("AUTO EAT")
     FeatureToggle("eat", "Auto Eat", "Come automaticamente se tiver um chunk.")
     Z.Slider("Intervalo do Eat", 50, 1000, S.eatInterval, function(v)
         S.eatInterval = v
@@ -1362,7 +1374,7 @@ local function LoadEatSell()
     end, { step = 10, suffix = " ms" })
     Z.Info("O Eat só dispara se você TIVER um chunk na mão.")
 
-    Z.Sep("💰  AUTO SELL")
+    Z.Sep("AUTO SELL")
     FeatureToggle("sellTimer", "Auto Sell (Timer)", "Vende em intervalos fixos")
     Z.Slider("Vender a cada", 1000, 60000, S.sellTimerInterval, function(v) S.sellTimerInterval = v; SaveConfig() end, { step = 500, suffix = " ms" })
     FeatureToggle("smartSell", "Smart Sell (com chunk)", "Vende quando você está com chunk na mão e o tamanho parou de crescer")
@@ -1372,7 +1384,7 @@ local function LoadEatSell()
         SaveConfig()
     end, "Pula o mapa assim que o Smart Sell vender")
 
-    Z.Sep("🗑️  AUTO THROW")
+    Z.Sep("AUTO THROW")
     FeatureToggle("throw", "Auto Throw", "Joga fora o que está na mão")
     Z.Slider("Intervalo", 100, 3000, S.throwInterval, function(v) S.throwInterval = v; SaveConfig() end, { step = 50, suffix = " ms" })
 end
@@ -1381,7 +1393,7 @@ end
 -- ABA: WALK
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadWalk()
-    Z.Sep("🚶  AUTO WALK")
+    Z.Sep("AUTO WALK")
     FeatureToggle("walk", "Auto Walk", "Anda de verdade com MoveTo contínuo + anti-travamento")
     Z.Slider("WalkSpeed no walk", 16, 150, S.walkSpeed, function(v) S.walkSpeed = v; SaveConfig() end, { step = 2, suffix = " studs/s" })
     Z.Slider("Raio de caminhada", 20, 150, S.walkRadius, function(v) S.walkRadius = v; SaveConfig() end, { step = 5, suffix = " studs" })
@@ -1392,7 +1404,7 @@ end
 -- ABA: REWARDS
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadRewards()
-    Z.Sep("🎁  AUTO REDEEM REWARDS")
+    Z.Sep("AUTO REDEEM REWARDS")
     FeatureToggle("rewards", "Auto Redeem Rewards", "Resgata as rewards por tempo assim que ficam prontas")
     Z.Toggle("Incluir giro do grupo (Spin)", S.rewardSpin, function(v)
         S.rewardSpin = v
@@ -1404,7 +1416,7 @@ end
 -- ABA: MAP
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadMap()
-    Z.Sep("🗺️  CONTROLE DO MAPA")
+    Z.Sep("CONTROLE DO MAPA")
     local ss = GetServerSettings()
     local paused = ss and ss:FindFirstChild("Paused")
     if paused then
@@ -1415,10 +1427,10 @@ local function LoadMap()
             if UI.pause and UI.pause.Frame.Parent then UI.pause.Set(val, true) end
         end))
     else
-        Z.Info("⚠ ServerSettings.Paused não encontrado neste servidor.")
+        Z.Info("ServerSettings.Paused não encontrado neste servidor.")
     end
 
-    Z.Sep("⏸️  AUTO PAUSE APÓS SKIP")
+    Z.Sep("AUTO PAUSE APÓS SKIP")
     Z.Toggle("Auto Pause após Skip", S.autoPauseAfterSkip, function(v)
         S.autoPauseAfterSkip = v
         SaveConfig()
@@ -1428,13 +1440,13 @@ local function LoadMap()
         SaveConfig()
     end, { suffix = " s" })
 
-    Z.Sep("⏭️  SKIP POR TEMPO")
+    Z.Sep("SKIP POR TEMPO")
     UI.skipTimer = Z.Toggle("Skip Map (Tempo)", Features.skipTimer.running, function(v) SetFeature("skipTimer", v, true) end, "Pula o mapa a cada X segundos")
     Z.Toggle("Ativar Skip por tempo", S.skipTimerEnabled, function(v) S.skipTimerEnabled = v; SaveConfig() end,
         "Precisa estar ligado para o Skip por tempo funcionar.")
     Z.Slider("Pular a cada", 5, 900, S.skipInterval, function(v) S.skipInterval = v; SaveConfig() end, { step = 5, suffix = " s" })
 
-    Z.Sep("⏭️  SKIP SEM CHUNK")
+    Z.Sep("SKIP SEM CHUNK")
     UI.skipStuck = Z.Toggle("Skip Map (Sem Chunk)", Features.skipStuck.running, function(v) SetFeature("skipStuck", v, true) end, "Pula se tentar pegar e não conseguir por X s")
     Z.Toggle("Ativar Skip sem chunk", S.skipStuckEnabled, function(v) S.skipStuckEnabled = v; SaveConfig() end,
         "Precisa estar ligado para o Skip sem chunk funcionar.")
@@ -1445,7 +1457,7 @@ end
 -- ABA: UNSTUCK
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadUnstuck()
-    Z.Sep("📏  SKIP SE SIZE PARAR")
+    Z.Sep("SKIP SE SIZE PARAR")
     FeatureToggle("sizeStuckSkip", "Skip se Size parar",
         "Se o Size não mudar por X segundos, unpause → skip → re-pause após Y segundos.")
     Z.Toggle("Ativar skip por Size parado", S.sizeStuckSkipEnabled, function(v)
@@ -1462,7 +1474,7 @@ local function LoadUnstuck()
         SaveConfig()
     end, { step = 0.5, suffix = " s" })
 
-    Z.Sep("📡  TELEPORTE APÓS FALHA DO GRAB")
+    Z.Sep("TELEPORTE APÓS FALHA DO GRAB")
     Z.Toggle("Teleportar após falha", S.grabTeleportEnabled, function(v)
         S.grabTeleportEnabled = v
         SaveConfig()
@@ -1480,7 +1492,7 @@ local function LoadUnstuck()
         SaveConfig()
     end, { step = 0.5, suffix = " s" })
 
-    Z.Sep("🧱  BEDROCK")
+    Z.Sep("BEDROCK")
     Z.Toggle("Pular mapa se preso na Bedrock", S.grabBedrockSkipEnabled, function(v)
         S.grabBedrockSkipEnabled = v
         SaveConfig()
@@ -1490,7 +1502,7 @@ local function LoadUnstuck()
         SaveConfig()
     end, { step = 0.5, suffix = " s" })
 
-    Z.Sep("⏸️  AUTO-OFF DO GRAB")
+    Z.Sep("AUTO-OFF DO GRAB")
     Z.Toggle("Desligar grab se parado e sem crescer", S.autoOffGrabEnabled, function(v)
         S.autoOffGrabEnabled = v
         if not v then ResetAutoOff() end
@@ -1501,7 +1513,7 @@ local function LoadUnstuck()
         SaveConfig()
     end, { step = 0.5, suffix = " s" })
 
-    Z.Sep("🧍  STUCK DO GRAB / WALK")
+    Z.Sep("STUCK DO GRAB / WALK")
     Z.Slider("Grab: tempo para considerar travado", 0.5, 5, S.grabStuckTime, function(v)
         S.grabStuckTime = v
         SaveConfig()
@@ -1516,7 +1528,7 @@ end
 -- ABA: AUTO UPGRADES
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadAutoUpgrades()
-    Z.Sep("⚡  AUTO UPGRADES")
+    Z.Sep("AUTO UPGRADES")
     Z.Info("NÃO é cego: só compra se o saldo de Cubes (espelhado via SetCubes/CubesAdded) cobrir o preço do próximo nível.")
 
     local options = {}
@@ -1534,7 +1546,7 @@ local function LoadAutoUpgrades()
         for _, name in ipairs(AUTO_UPGRADE_NAMES) do
             table.insert(options, name)
         end
-        Z.Info("⚠ LocalPlayer.Upgrades não encontrado. Usando lista fixa (nomes internos).")
+        Z.Info("LocalPlayer.Upgrades não encontrado. Usando lista fixa (nomes internos).")
     end
 
     table.sort(options)
@@ -1559,7 +1571,7 @@ local function LoadAutoUpgrades()
         dropdownObj.Set(S.autoUpgradesSelectedName, true)
     end
 
-    Z.Sep("📊  STATUS")
+    Z.Sep("STATUS")
     local stUpgName  = Z.Stat("Upgrade (interno)", "—")
     local stUpgLevel = Z.Stat("Nível", "—")
     local stUpgPrice = Z.Stat("Preço próximo", "—")
@@ -1589,11 +1601,11 @@ local function LoadAutoUpgrades()
         end)
     end)
 
-    Z.Sep("🤖  AUTOMAÇÃO")
+    Z.Sep("AUTOMAÇÃO")
     FeatureToggle("autoUpgrades", "Auto Upgrade (com verificação de saldo)",
         "Só dispara PurchaseEvent:FireServer(nomeInternoExato) se cubes >= price. Não é cego.")
 
-    Z.Button("🧪  Testar compra agora (manual)", C.Accent, function()
+    Z.Button("Testar compra agora (manual)", C.Accent, function()
         local name = S.autoUpgradesSelectedName
         if not name then
             Z.Notify("Auto Upgrades", "Selecione um upgrade primeiro!", C.Warning, 2)
@@ -1612,8 +1624,7 @@ local function LoadAutoUpgrades()
         end
         if cubes < price then
             Z.Notify("Auto Upgrades",
-                string.format("Sem saldo: %s/%s (faltam %s)",
-                    tostring(cubes), tostring(price), tostring(price - cubes)),
+                string.format("Sem saldo: %s/%s (faltam %s)", tostring(cubes), tostring(price), tostring(price - cubes)),
                 C.Warning, 2)
             return
         end
@@ -1625,8 +1636,7 @@ local function LoadAutoUpgrades()
         local ok, err = pcall(function() ev:FireServer(name) end)
         if ok then
             Z.Notify("Auto Upgrades",
-                string.format("Teste enviado: %q | %s/%s",
-                    name, tostring(cubes), tostring(price)),
+                string.format("Teste enviado: %q | %s/%s", name, tostring(cubes), tostring(price)),
                 C.Success, 2)
             print(string.format("[ETW AutoUpgrades] TESTE manual: FireServer(%q) | Cubes: %s | Preço: %s",
                 name, tostring(cubes), tostring(price)))
@@ -1636,14 +1646,14 @@ local function LoadAutoUpgrades()
         end
     end)
 
-    Z.Info("💡 O saldo é espelhado via SetCubes/CubesAdded (igual ao script Cubes.Cubes), então não depende da UI estar funcionando.")
+    Z.Info("O saldo é espelhado via SetCubes/CubesAdded (igual ao script Cubes.Cubes), então não depende da UI estar funcionando.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- ABA: TELEPORTE
 -- ═══════════════════════════════════════════════════════════════════════
 local function LoadTeleport()
-    Z.Sep("🔁  TELEPORTE MEGA/NORMAL (TIMED)")
+    Z.Sep("TELEPORTE MEGA/NORMAL (TIMED)")
     Z.Info("A cada 91 min (1:31), faz o ciclo: vai pro mapa oposto, espera 10s, volta, espera 10s. Contagem reseta em 2. A contagem é salva ANTES de teleportar, para sobreviver ao reload do mapa.")
 
     UI.teleportTimed = Z.Toggle("Ativar Teleporte Timed (91 min)", Features.teleportTimed.running, function(v)
@@ -1655,23 +1665,21 @@ local function LoadTeleport()
         SaveConfig()
     end, { step = 1, suffix = " min" })
 
-    Z.Button("🔁  Fazer ciclo Mega/Normal agora", C.Warning, function()
-        task.spawn(function()
-            RunTeleportCycleBlocking("Manual")
-        end)
+    Z.Button("Fazer ciclo Mega/Normal agora", C.Warning, function()
+        task.spawn(function() RunTeleportCycleBlocking("Manual") end)
     end)
-    Z.Button("🔄  Resetar contagem de teleporte", C.Purple, function()
+    Z.Button("Resetar contagem de teleporte", C.Purple, function()
         S.teleportCount = 0
         SaveConfig()
         Z.Notify("Teleporte", "Contagem resetada para 0.", C.Success, 2)
     end)
-    Z.Button("⏱  Resetar timer (força próximo ciclo agora)", C.Accent, function()
+    Z.Button("Resetar timer (força próximo ciclo agora)", C.Accent, function()
         teleportTimerState.lastRunAt = 0
         SaveTeleportTimer()
         Z.Notify("Teleporte", "Timer resetado. Próximo ciclo no próximo tick.", C.Success, 2)
     end)
 
-    Z.Sep("📊  STATUS")
+    Z.Sep("STATUS")
     local stCount = Z.Stat("Contagem", "0/2")
     local stMap   = Z.Stat("Mapa atual", "—")
     local stNext  = Z.Stat("Próximo ciclo", "—")
@@ -1699,24 +1707,25 @@ local function LoadTeleport()
         end)
     end)
 
-    Z.Sep("ℹ️  SOBRE")
+    Z.Sep("SOBRE")
     Z.Info("A contagem é persistida no JSON e salva ANTES de cada teleporte. " ..
            "Se o mapa recarregar no meio do ciclo, a contagem já está no JSON. " ..
            "O timer também é salvo: se o player ficou 2h offline, o próximo ciclo acontece assim que ele entrar.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════
--- REGISTRO DAS ABAS
+-- REGISTRO DAS ABAS (ícones desenhados pela Base: nome do ícone, sem emoji)
+-- A aba Settings da Base continua sempre por último.
 -- ═══════════════════════════════════════════════════════════════════════
-Z.AddTab("Main",        "🎮", LoadMain)
-Z.AddTab("Grab",        "🌾", LoadGrab)
-Z.AddTab("Eat/Sell",    "🍽️", LoadEatSell)
-Z.AddTab("Walk",        "🚶", LoadWalk)
-Z.AddTab("Rewards",     "🎁", LoadRewards)
-Z.AddTab("Map",         "🗺️", LoadMap)
-Z.AddTab("Unstuck",     "📏", LoadUnstuck)
-Z.AddTab("Auto Upgrades","⚡", LoadAutoUpgrades)
-Z.AddTab("Teleporte",   "🔁", LoadTeleport)
+Z.AddTab("Main",          "gamepad", LoadMain)
+Z.AddTab("Grab",          "hand",    LoadGrab)
+Z.AddTab("Eat/Sell",      "coin",    LoadEatSell)
+Z.AddTab("Walk",          "walk",    LoadWalk)
+Z.AddTab("Rewards",       "gift",    LoadRewards)
+Z.AddTab("Map",           "pin",     LoadMap)
+Z.AddTab("Unstuck",       "lock",    LoadUnstuck)
+Z.AddTab("Auto Upgrades", "upgrade", LoadAutoUpgrades)
+Z.AddTab("Teleporte",     "swap",    LoadTeleport)
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- RESTAURA AS FUNÇÕES ATIVAS (AUTO-START)
@@ -1752,5 +1761,5 @@ Z.Track(UIS.InputBegan:Connect(function(input, gpe)
 end))
 
 Z.SelectTab("Main")
-Z.Notify("Zuni Hub", "Módulo ETW v13.9 (contagem salva antes do teleporte) carregado!", C.Success, 3)
-print("⚡ ETW Module v13.9 iniciado")
+Z.Notify("Zuni Hub", "Módulo ETW v14.0 carregado!", C.Success, 3)
+print("ETW Module v14.0 iniciado")
